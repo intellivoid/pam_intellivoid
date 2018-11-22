@@ -135,8 +135,10 @@ static int GetOSRelease(information_t *info)
 
 	info->lsb_info.Dist_id	 = reinterpret_cast<char *>(malloc(1024));
 	info->lsb_info.Description = reinterpret_cast<char *>(malloc(1024));
+	info->lsb_info.Version = reinterpret_cast<char*>(malloc(1024));
 	bzero(info->lsb_info.Description, 1024);
 	bzero(info->lsb_info.Dist_id, 1024);
+	bzero(info->lsb_info.Version, 1024);
 
 	while (fgets(buf, sizeof(buf), data))
 	{
@@ -147,10 +149,15 @@ static int GetOSRelease(information_t *info)
 		s = strstr("PRETTY_NAME", buf);
 		if (s)
 			sscanf(s, "PRETTY_NAME=\"%s\"", info->lsb_info.Description);
+
+		s = strstr("VERSION", buf);
+		if (s)
+			sscanf(s, "VERSION=\"%s\"", info->lsb_info.Version);
 	}
 	fclose(data);
 
-	info->lsb_info.Version = strdup("0.0");
+	if (!strlen(info->lsb_info.Version))
+		strcpy(info->lsb_info.Version, "0.0");
 	return 0;
 }
 
