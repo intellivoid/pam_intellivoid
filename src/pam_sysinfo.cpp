@@ -68,7 +68,7 @@ std::string mystrftime(time_t t, bool short_output)
 {
 	tm tm = *localtime(&t);
 	time_t CurTime = time(nullptr);
-    char buf[0x200];
+	char buf[0x200];
 	strftime(buf, sizeof(buf), "%b %d %H:%M:%S %Y %Z", &tm);
 	if (short_output)
 		return buf;
@@ -88,7 +88,7 @@ protected:
 	size_t dividersize;
 public:
 	Message(const std::string &banner = "", const char borderchar = '+', size_t dividersize = 80) :
-            message(banner), borderchar(borderchar), dividersize(dividersize)
+			message(banner), borderchar(borderchar), dividersize(dividersize)
 	{
 	}
 
@@ -99,7 +99,7 @@ public:
 	void AddLine(const std::string &key, const std::string &value)
 	{
 		// add the color, print the key and then the value with equals sign.
-        char *tmp = nullptr;
+		char *tmp = nullptr;
 		asprintf(&tmp, "\033[0;35m+  \033[0;37m%-15s \033[0;35m= \033[1;32m%s\033[0m\n", key.c_str(), value.c_str());
 		this->message += tmp;
 		free(tmp);
@@ -141,18 +141,18 @@ public:
 											const char *progresscolor = "\033[1;34m", char progresschar = '#', char leftborder = '[',
 											char rightborder = ']')
 	{
-        // Initialize a string with spaces.
-        std::string str = std::string(length, ' ');
+		// Initialize a string with spaces.
+		std::string str = std::string(length, ' ');
 
-        // Add our actual bar, overwriting the spaces.
-        if (percentage != 0.0 && !isnan(percentage))
-        {
-            // Determine how many chars we need to replace as our `progresschar`
-            size_t count = static_cast<size_t>(floor((percentage / 100.0f) * length));
-            // Not sure why replace needs to know the end of the string and how many
-            // chars to add... Seems kinda redundant to me but whatever.
-            str.replace(0, count, count, progresschar);
-        }
+		// Add our actual bar, overwriting the spaces.
+		if (percentage != 0.0 && !isnan(percentage))
+		{
+			// Determine how many chars we need to replace as our `progresschar`
+			size_t count = static_cast<size_t>(floor((percentage / 100.0f) * length));
+			// Not sure why replace needs to know the end of the string and how many
+			// chars to add... Seems kinda redundant to me but whatever.
+			str.replace(0, count, count, progresschar);
+		}
 
 		// Use a string stream just because it's easier to rememebr how things go together.
 		std::stringstream ss;
@@ -179,14 +179,14 @@ static inline std::pair<size_t, const char*> GetHighestSize(size_t size)
 
 const char *idiotcheck(const char *idiot)
 {
-    return idiot ? idiot : "(Unknown)";
+	return idiot ? idiot : "(Unknown)";
 }
 
 /* expected hook, this is where custom stuff happens */
 int actuallyauth(pam_handle_t *pamh, int flags,int argc, const char **argv)
 {
 	information_t *info = GetSystemInformation();
-    if (!info)
+	if (!info)
 	   return PAM_BUF_ERR;
 
 	// Figlet.
@@ -199,17 +199,17 @@ int actuallyauth(pam_handle_t *pamh, int flags,int argc, const char **argv)
 	msg.AddLine("Address", idiotcheck(info->Hostname)); // FIXME!
 	msg.AddLine("Kernel", std::string(info->kernel_info.Release) + " "s + std::string(info->kernel_info.Version));
 	msg.AddLine("Uptime", mystrftime(info->StartTime, false));
-    msg.AddLine("CPU", idiotcheck(info->cpu_info.Model));
+	msg.AddLine("CPU", idiotcheck(info->cpu_info.Model));
 
-    // Use stringstream for this because it's obnoxious otherwise.
-    ss.str(""); ss.clear();
-    ss << std::fixed << std::setprecision(2) << info->Loads[0] << " " << info->Loads[1] << " " << info->Loads[2];
+	// Use stringstream for this because it's obnoxious otherwise.
+	ss.str(""); ss.clear();
+	ss << std::fixed << std::setprecision(2) << info->Loads[0] << " " << info->Loads[1] << " " << info->Loads[2];
 
 	msg.AddLine("Load Avg.", ss.str());
 
-    ss.str(""); ss.clear();
-    ss << Message::GenerateProgressBar(info->cpu_info.CPUPercent, 20)
-       << " \033[1;32m" << info->cpu_info.CPUPercent << "%\033[0m";
+	ss.str(""); ss.clear();
+	ss << Message::GenerateProgressBar(info->cpu_info.CPUPercent, 20)
+	   << " \033[1;32m" << info->cpu_info.CPUPercent << "%\033[0m";
 	msg.AddLine("CPU usage", ss.str());
 
 	// We need to calculate our free memory usage and our used usage.
@@ -217,15 +217,15 @@ int actuallyauth(pam_handle_t *pamh, int flags,int argc, const char **argv)
 	// the amount free for the actual percentage.
 	double total = info->memory_info.TotalRam;
 	double used  = info->memory_info.UsedRam;
-    pam_syslog(pamh, LOG_INFO, "total = %f, used = %f", total, used);
+	pam_syslog(pamh, LOG_INFO, "total = %f, used = %f", total, used);
 	double freemem = ((total - used) / total) * 100.0f;
-    double usedmem = (((used - total) / total) * 100.0f) + 100.0f;
-    pam_syslog(pamh, LOG_INFO, "usedmem = %f, freemem = %f", usedmem, freemem);
+	double usedmem = (((used - total) / total) * 100.0f) + 100.0f;
+	pam_syslog(pamh, LOG_INFO, "usedmem = %f, freemem = %f", usedmem, freemem);
 
 	// Clear our string stream.
-    ss.str(""); ss.clear();
-    // Generate a progress bar that is 30 chars long.
-    ss << Message::GenerateProgressBar(usedmem, 20) << " \033[1;32m" << usedmem << "% used";
+	ss.str(""); ss.clear();
+	// Generate a progress bar that is 30 chars long.
+	ss << Message::GenerateProgressBar(usedmem, 20) << " \033[1;32m" << usedmem << "% used";
 
 	// Now add our line!
 	msg.AddLine("Memory", ss.str());
@@ -253,9 +253,9 @@ int actuallyauth(pam_handle_t *pamh, int flags,int argc, const char **argv)
 	msg.AddSeparator();
 
 	// Print everything at login!
-	pam_info(pamh, "%s", msg.GetString());
+	pam_info(pamh, "%s\n\033[38;5;196mATTENTION: ALL connections are monitored and recorded\nDisconnect IMMEDIATELTY if you are not an authorized user!\033[0m\n", msg.GetString());
 
-    FreeSystemInformation(info);
+	FreeSystemInformation(info);
 
 	return PAM_SUCCESS;
 }
