@@ -142,7 +142,7 @@ static int GetOSRelease(information_t *info)
 
 	while (fgets(buf, sizeof(buf), data))
 	{
-		char *s = strstr("ID", buf);
+		const char *s = strstr("ID", buf);
 		if (s)
 			sscanf(s, "ID=\"%s\"", info->lsb_info.Dist_id);
 

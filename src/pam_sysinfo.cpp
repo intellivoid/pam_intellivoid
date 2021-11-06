@@ -23,6 +23,49 @@
 
 using namespace std::string_literals;
 
+// Magenta \033[38;5;5m
+// Light Magenta \033[38;5;13m
+// Pink \033[38;5;199m
+// White \033[38;5;15m
+// Reset \033[0m
+#if 1
+const char *intellivoid_logo = 
+"                      \033[1;38;5;15m         -/++++++++++/-         \033[0m\n"
+"                      \033[1;38;5;15m      /o+-            -+o/      \033[0m\n"
+"                      \033[1;38;5;15m    +o-               \033[38;5;5m..\033[0m\033[38;5;15m -o+    \033[0m\n"
+"                      \033[1;38;5;15m  -s-               \033[38;5;5m.:/-\033[0m\033[38;5;15m   -s-  \033[0m\n"
+"                      \033[1;38;5;15m :s`              \033[38;5;13m-+\033[38;5;5m///-\033[0m\033[38;5;15m    `s: \033[0m\n"
+"                      \033[1;38;5;15m.y`             \033[38;5;13m-sho\033[38;5;5m///-\033[0m\033[38;5;15m     `y.\033[0m\n"
+"                      \033[1;38;5;15ms:            \033[38;5;13m-shhho\033[38;5;5m///-\033[0m\033[38;5;15m      /s\033[0m\n"
+"                      \033[1;38;5;15mh.          \033[38;5;13m-shhhhho\033[38;5;5m///-\033[0m\033[38;5;15m      .h\033[0m\n"
+"                      \033[1;38;5;15mh.        \033[38;5;199m-ydhh\033[38;5;13mhhhho\033[38;5;5m///-\033[0m\033[38;5;15m      .h\033[0m\n"
+"                      \033[1;38;5;15ms/      \033[38;5;199m-ydddddh\033[38;5;13mhhho\033[38;5;5m///-\033[0m\033[38;5;15m      /s\033[0m\n"
+"                      \033[1;38;5;15m.y`   \033[38;5;199m-ydddddddddh\033[38;5;13mho\033[38;5;5m///-\033[0m\033[38;5;15m     `y.\033[0m\n"
+"                      \033[1;38;5;15m :s  \033[38;5;199m+yyyyyyyyyyyys\033[38;5;13m+\033[38;5;5m:::-\033[0m\033[38;5;15m    `s: \033[0m\n"
+"                      \033[1;38;5;15m  -s-                      -s-  \033[0m\n"
+"                      \033[1;38;5;15m   `+o-                  -o+`   \033[0m\n"
+"                      \033[1;38;5;15m     `/o+-            -+o/`     \033[0m\n"
+"                      \033[1;38;5;15m        `-/+++++++++++/-        \033[0m\n";
+#else
+const char *intellivoid_logo = 
+"         -/++++++++++/-         \n"
+"      /o+-            -+o/      \n"
+"    +o-               .. -o+    \n"
+"  -s-               .:/-   -s-  \n"
+" :s`              -+///-    `s: \n"
+".y`             -sho///-     `y.\n"
+"s:            -shhho///-      /s\n"
+"h.          -shhhhho///-      .h\n"
+"h.        -ydhhhhhho///-      .h\n"
+"s/      -ydddddhhhho///-      /s\n"
+".y`   -ydddddddddhho///-     `y.\n"
+" :s  +yyyyyyyyyyyys+:::-    `s: \n"
+"  -s-                      -s-  \n"
+"   `+o-                  -o+`   \n"
+"     `/o+-            -+o/`     \n"
+"        `-/+++++++++++/-        \n";
+#endif
+
 std::string Duration(time_t t)
 {
 	/* We first calculate everything */
@@ -87,8 +130,8 @@ protected:
 	char borderchar;
 	size_t dividersize;
 public:
-	Message(const std::string &banner = "", const char borderchar = '+', size_t dividersize = 80) :
-			message(banner), borderchar(borderchar), dividersize(dividersize)
+	Message(const std::string &banner = "", const char bchar = '+', size_t divsize = 80) :
+			message(banner), borderchar(bchar), dividersize(divsize)
 	{
 	}
 
@@ -167,7 +210,7 @@ public:
 static inline std::pair<size_t, const char*> GetHighestSize(size_t size)
 {
 	static const char *sizes[] = { "B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB" };
-	int si = 0;
+	size_t si = 0;
 	for (; 1024 < size; si++, size >>= 10)
 		;
 
@@ -189,11 +232,21 @@ int actuallyauth(pam_handle_t *pamh, int flags,int argc, const char **argv)
 	if (!info)
 	   return PAM_BUF_ERR;
 
-	// Figlet.
 	std::stringstream ss;
-	Figlet::banner.printFramed(info->Hostname, ss, Figlet::FIGLET_DOUBLE);
+	// Print the logo
+	ss << intellivoid_logo;
 
-	Message msg("\033[1;32m"s + ss.str() + "\033[0m\n\n"s);
+	ss << "\n              \033[1;93mUNAUTHORIZED ACCESS TO THIS DEVICE IS PROHIBITED\033[0;93m\n";
+	ss << "       You must have express permission to access or configure this device.\n";
+	ss << "            Unauthorized attempts and actions to access or use this\n";
+	ss << "             device may result in civil and/or criminal penalties\n";
+	ss << "        \033[91mAll activities performed on this device are logged and monitored.\033[0m\n\n\033[0;32m";
+
+	// Figlet.
+	// Figlet::larry3d.printFramed(info->Hostname, ss, Figlet::FIGLET_SINGLE);
+	Figlet::larry3d.printFramed("Intellivoid", ss, Figlet::FIGLET_SINGLE);
+
+	Message msg("\033[1;32m"s + ss.str() + "\033[0m\n"s);
 	msg.AddSeparator("System Data");
 	msg.AddLine("Hostname", idiotcheck(info->Hostname));
 	msg.AddLine("Address", idiotcheck(info->Hostname)); // FIXME!
@@ -253,7 +306,7 @@ int actuallyauth(pam_handle_t *pamh, int flags,int argc, const char **argv)
 	msg.AddSeparator();
 
 	// Print everything at login!
-	pam_info(pamh, "%s\n\033[38;5;196mATTENTION: ALL connections are monitored and recorded\nDisconnect IMMEDIATELTY if you are not an authorized user!\033[0m\n", msg.GetString());
+	pam_info(pamh, "%s", msg.GetString());
 
 	FreeSystemInformation(info);
 
