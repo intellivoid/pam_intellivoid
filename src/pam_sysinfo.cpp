@@ -274,7 +274,6 @@ int actuallyauth(pam_handle_t *pamh, int flags,int argc, const char **argv)
 	msg.AddSeparator("Network");
 	for (network_info_t *iter = info->net_start; iter; iter = iter->next)
 	{
-		// printf("%s iter->Online == %d\n", iter->InterfaceName, iter->Online);
 		if (iter->Online != 1)
 			continue;
 		auto tx = GetHighestSize(iter->TX), rx = GetHighestSize(iter->RX);

@@ -572,6 +572,14 @@ static int GetNetworkInfo(information_t *info)
 		network_info_t *iter = it->second;
 		sockaddr_t *sok = reinterpret_cast<sockaddr_t*>(ifiter->ifa_addr);
 
+		// ?????: I have no clue why these flags are like this
+		// but this is required to get the correct flags.
+		uint32_t flags = ifiter->ifa_flags & ~(1UL << 16);
+
+		// if the interface is online and/or a loopback
+		iter->Online = ((flags & IFF_UP) == IFF_UP) && ((flags & IFF_RUNNING) == IFF_RUNNING);
+		iter->Loopback = ((flags & IFF_LOOPBACK) == IFF_LOOPBACK);
+
 		// Handle interfaces that have IPv4 addresses
 		switch(sok->sa.sa_family)
 		{
@@ -588,12 +596,6 @@ static int GetNetworkInfo(information_t *info)
 			}
 			case AF_PACKET:
 			{
-				// if the interface is online and/or a loopback
-				iter->Online = !!(ifiter->ifa_flags & IFF_RUNNING);
-				iter->Loopback = ifiter->ifa_flags & IFF_LOOPBACK;
-
-				// printf("online = %s, loopback = %s\n", iter->Online ? "yes":"no", iter->Loopback?"yes":"no");
-
 				if (ifiter->ifa_data == nullptr)
 					break;
 				struct rtnl_link_stats *stats = reinterpret_cast<struct rtnl_link_stats*>(ifiter->ifa_data);
