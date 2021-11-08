@@ -1,6 +1,7 @@
 // Linux-includes for getting system info.
 #include <arpa/inet.h>
 #include <cerrno>
+#include <map>
 #include <climits>
 #include <cstdio>
 #include <cstdlib>
@@ -17,6 +18,9 @@
 #include <sys/time.h>
 #include <sys/types.h> // also available via <stdlib.h>
 #include <sys/utsname.h>
+#include <ifaddrs.h> // for getifaddrs
+#include <net/if.h> // for IFF_UP
+#include <linux/if_link.h> // for rtnl_link_stats
 #include <unistd.h>
 
 // For our defined types.
@@ -63,7 +67,7 @@ static int GetKernInfo(information_t *info)
 	if (!f)
 		return -1;
 
-	fscanf(f, "%d", &info->kernel_info.IsTainted);
+	fscanf(f, "%hhd", &info->kernel_info.IsTainted);
 	fclose(f);
 
 	return 0;
@@ -142,17 +146,14 @@ static int GetOSRelease(information_t *info)
 
 	while (fgets(buf, sizeof(buf), data))
 	{
-		const char *s = strstr("ID", buf);
-		if (s)
-			sscanf(s, "ID=\"%s\"", info->lsb_info.Dist_id);
+		if (strstr("ID", buf))
+			sscanf(buf, "ID=%s", info->lsb_info.Dist_id);
 
-		s = strstr("PRETTY_NAME", buf);
-		if (s)
-			sscanf(s, "PRETTY_NAME=\"%s\"", info->lsb_info.Description);
+		if (strstr("PRETTY_NAME", buf))
+			sscanf(buf, "PRETTY_NAME=\"%s\"", info->lsb_info.Description);
 
-		s = strstr("VERSION", buf);
-		if (s)
-			sscanf(s, "VERSION=\"%s\"", info->lsb_info.Version);
+		if (strstr("VERSION", buf))
+			sscanf(buf, "VERSION=\"%s\"", info->lsb_info.Version);
 	}
 	fclose(data);
 
@@ -309,8 +310,9 @@ static int GetDiskInfo(information_t *info)
 		I/O completion time and the backlog that may be accumulating.
 #endif
 
-	hdd_info_t *iter = NULL;
+	hdd_info_t *iter = nullptr;
 	info->hdd_start = iter = new hdd_info_t;
+	bzero(iter, sizeof(hdd_info_t));
 
 	while (fgets(buf, sizeof(buf), f))
 	{
@@ -341,17 +343,18 @@ static int GetDiskInfo(information_t *info)
 
 		// Fill out the struct.
 		memset(iter, 0, sizeof(hdd_info_t));
-		iter->Name		   = strdup(bufstr);
-		iter->BytesRead	= CompletedReads;
+		iter->Name         = strdup(bufstr);
+		iter->BytesRead    = CompletedReads;
 		iter->BytesWritten = CompletedWrites;
-		iter->next		   = new hdd_info_t;
+		iter->next         = new hdd_info_t;
+		bzero(iter->next, sizeof(hdd_info_t));
 
 		iter = iter->next;
 	}
 
 	// This is the end of the list.
 	delete iter->next;
-	iter->next = NULL;
+	iter->next = nullptr;
 
 	fclose(f);
 	f = fopen("/proc/partitions", "r");
@@ -383,7 +386,8 @@ static int GetDiskInfo(information_t *info)
 		}
 
 		// Parse the values
-		sscanf(buf, "%d, %d, %lu, %s", &major, &minor, &blocks, buffer);
+		if (sscanf(buf, "%d %d %lu %s", &major, &minor, &blocks, buffer) == EOF)
+			continue;
 
 		// make the byte count and add the value to the array.
 		for (iter = info->hdd_start; iter; iter = iter->next)
@@ -525,44 +529,96 @@ static int GetStatisticalInfo(information_t *info)
 	return 0;
 }
 
-// Returns an allocated system information structure.
-information_t *__GetSystemInformation()
+///////////////////////////////////////////////////
+// Function: GetNetworkInfo
+//
+// description:
+// Get the information on network adapters and
+// how much data they have transferred.
+static int GetNetworkInfo(information_t *info)
 {
-	information_t *info = new information_t;
-	bzero(info, sizeof(information_t));
-	info->lsb_info.Dist_id = info->lsb_info.Version = info->lsb_info.Release = info->lsb_info.Description = nullptr;
-
-	if (GetCPUInfo(info) != 0)
-		goto fucked;
-
-	if (GetLoadAvg(info) != 0)
-		goto fucked;
-
-	if (GetLSBInfo(info) != 0)
+	struct ifaddrs *ifap = nullptr;
+	if (getifaddrs(&ifap) != 0)
 	{
-		if (GetOSRelease(info) != 0)
-		{
-			// whatever.. we give up. It'll return a nullptr now.
-		}
+		perror("getifaddrs");
+		return -1;
 	}
 
-	// TODO: Unfuck this function
-	// if (GetDiskInfo(info) != 0)
-	//    goto fail;
+	// Use an std::map here to find interfaces multiple times
+	std::map<std::string, network_info_t*> interfaces;
 
-	if (GetMemoryInfo(info) != 0)
-		goto fucked;
+	typedef union {
+		struct sockaddr sa;
+		struct sockaddr_in in;
+		struct sockaddr_in6 in6;
+	} sockaddr_t;
 
-	if (GetStatisticalInfo(info) != 0)
-		goto fucked;
+	for (struct ifaddrs *ifiter = ifap; ifiter != nullptr; ifiter = ifiter->ifa_next)
+	{
+		// Determine what kind of info this is
+		if (ifiter->ifa_addr == nullptr)
+			continue;
 
-	if (GetKernInfo(info) != 0)
-		goto fucked;
+		auto it = interfaces.find(ifiter->ifa_name);
+		if (it == interfaces.end())
+		{
+			network_info_t *owo = new network_info_t;
+			bzero(owo, sizeof(network_info_t));
+			auto hmm = interfaces.emplace(std::string(ifiter->ifa_name), owo);
+			owo->InterfaceName = strdup(ifiter->ifa_name);
+			it = hmm.first;
+		}
 
-	return info;
-fucked:
-	delete info;
-	return nullptr;
+		network_info_t *iter = it->second;
+		sockaddr_t *sok = reinterpret_cast<sockaddr_t*>(ifiter->ifa_addr);
+
+		// Handle interfaces that have IPv4 addresses
+		switch(sok->sa.sa_family)
+		{
+			// TODO: support more than AF_INET and AF_INET6?
+			case AF_INET:
+			{
+				inet_ntop(AF_INET, &sok->in.sin_addr, iter->IPv4Address, sizeof(iter->IPv4Address));
+				break;
+			}
+			case AF_INET6:
+			{
+				inet_ntop(AF_INET6, &sok->in6.sin6_addr, iter->IPv6Address, sizeof(iter->IPv6Address));
+				break;
+			}
+			case AF_PACKET:
+			{
+				// if the interface is online and/or a loopback
+				iter->Online = !!(ifiter->ifa_flags & IFF_RUNNING);
+				iter->Loopback = ifiter->ifa_flags & IFF_LOOPBACK;
+
+				// printf("online = %s, loopback = %s\n", iter->Online ? "yes":"no", iter->Loopback?"yes":"no");
+
+				if (ifiter->ifa_data == nullptr)
+					break;
+				struct rtnl_link_stats *stats = reinterpret_cast<struct rtnl_link_stats*>(ifiter->ifa_data);
+				iter->TX = stats->tx_bytes;
+				iter->RX = stats->rx_bytes;
+				break;
+			}
+			default:
+				break;
+		}
+	}
+	freeifaddrs(ifap);
+
+	// construct the linked list and return a head structure.
+	network_info_t *head = nullptr, *iter = nullptr;
+	for (auto && [key, value] : interfaces)
+	{
+		if (!head)
+			iter = head = value;
+		else 
+			iter = iter->next = value;
+	}
+
+	info->net_start = head;
+	return 0;
 }
 
 // bypass C++ typesafety because we're trying to be a C library.
@@ -570,31 +626,74 @@ fucked:
 	free(reinterpret_cast<void *>(x)); \
 	x = nullptr
 
-void __FreeSystemInformation(information_t *info)
-{
-	// Free ALL THE THINGS!
-	FreeAndClear(info->lsb_info.Dist_id);
-	FreeAndClear(info->lsb_info.Release);
-	FreeAndClear(info->lsb_info.Description);
-	FreeAndClear(info->lsb_info.Version);
-	for (hdd_info_t *iter = info->hdd_start; iter;)
-	{
-		// Ensure we can iterate.
-		hdd_info_t *iterprev = iter;
-		iter				 = iter->next;
-		FreeAndClear(iterprev->Name);
-		delete iterprev;
-	}
-	delete[] info->Hostname;
-	FreeAndClear(info->kernel_info.Version);
-	FreeAndClear(info->kernel_info.Release);
-	FreeAndClear(info->kernel_info.Type);
-	delete info;
-}
-
 // Our C symbols.
 extern "C"
 {
-	information_t *GetSystemInformation() { return __GetSystemInformation(); }
-	void		   FreeSystemInformation(information_t *info) { __FreeSystemInformation(info); }
+	information_t *GetSystemInformation()
+	{
+		information_t *info = new information_t;
+		bzero(info, sizeof(information_t));
+		info->lsb_info.Dist_id = info->lsb_info.Version = info->lsb_info.Release = info->lsb_info.Description = nullptr;
+
+		if (GetCPUInfo(info) != 0)
+			goto fucked;
+
+		if (GetLoadAvg(info) != 0)
+			goto fucked;
+
+		if (GetOSRelease(info) != 0)
+		{
+			if (GetLSBInfo(info) != 0)
+			{
+				// whatever.. we give up. It'll return a nullptr now.
+			}
+		}
+
+		// TODO: Unfuck this function
+		if (GetDiskInfo(info) != 0)
+			goto fucked;
+
+		if (GetMemoryInfo(info) != 0)
+			goto fucked;
+
+		if (GetStatisticalInfo(info) != 0)
+			goto fucked;
+
+		if (GetKernInfo(info) != 0)
+			goto fucked;
+
+		if (GetNetworkInfo(info) != 0)
+			goto fucked;
+
+		return info;
+	fucked:
+		delete info;
+		return nullptr; 
+	}
+
+	void FreeSystemInformation(information_t *info) 
+	{
+		// Free ALL THE THINGS!
+		free(info->lsb_info.Dist_id);
+		free(info->lsb_info.Release);
+		free(info->lsb_info.Description);
+		free(info->lsb_info.Version);
+		for (hdd_info_t *iter = info->hdd_start, *iterprev = nullptr; iter != nullptr; iterprev = iter, iter = iter->next)
+		{
+			if (iterprev)
+				free(iterprev->Name);
+			delete iterprev;
+		}
+		
+		for (network_info_t *iter = info->net_start, *iterprev = nullptr; iter != nullptr; iterprev = iter, iter = iter->next)
+		{
+			free(iter->InterfaceName);
+			delete iterprev;
+		}
+		delete[] info->Hostname;
+		free(info->kernel_info.Version);
+		free(info->kernel_info.Release);
+		free(info->kernel_info.Type);
+		delete info;
+	}
 }

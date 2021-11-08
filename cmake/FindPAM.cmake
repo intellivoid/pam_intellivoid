@@ -4,6 +4,7 @@
 #  PAM_FOUND - system has pam
 #  PAM_INCLUDE_DIR - the pam include directory
 #  PAM_LIBRARIES - libpam library
+#  PAM_MISC_LIBRARY - libpam_misc library
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -14,6 +15,7 @@ endif (PAM_INCLUDE_DIR AND PAM_LIBRARY)
 
 find_path(PAM_INCLUDE_DIR NAMES security/pam_appl.h pam/pam_appl.h)
 find_library(PAM_LIBRARY pam)
+find_library(PAM_MISC_LIBRARY pam_misc)
 find_library(DL_LIBRARY dl)
 
 if (PAM_INCLUDE_DIR AND PAM_LIBRARY)
@@ -72,5 +74,15 @@ else (PAM_FOUND)
 		message(FATAL_ERROR "PAM was not found")
 	endif(PAM_FIND_REQUIRED)
 endif (PAM_FOUND)
+
+if (PAM_MISC_LIBRARY)
+	if (NOT PAM_FIND_QUIETLY)
+		message(STATUS "Found PAM misc: ${PAM_MISC_LIBRARY}")
+	endif (NOT PAM_FIND_QUIETLY)
+else (PAM_MISC_LIBRARY)
+	if (PAM_FIND_MISC_REQUIRED)
+		message(FATAL_ERROR "PAM misc not found")
+	endif (PAM_FIND_MISC_REQUIRED)
+endif (PAM_MISC_LIBRARY)
 
 mark_as_advanced(PAM_INCLUDE_DIR PAM_LIBRARY DL_LIBRARY PAM_MESSAGE_CONST)

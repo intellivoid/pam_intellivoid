@@ -8,27 +8,28 @@ extern "C"
 	typedef struct PUBLIC_API hdd_info_s
 	{
 		// TODO
-		char * Name; // Device/partition name.
-		size_t BytesWritten;
-		size_t BytesRead;
+		char *             Name; // Device/partition name.
+		size_t             BytesWritten;
+		size_t             BytesRead;
 
-		size_t			   SpaceAvailable; // In bytes
-		size_t			   SpaceUsed;	  // in bytes
-		size_t			   PartitionSize;  // in bytes
-		char *			   MountPoint;
-		char *			   FileSystemType; // NTFS or FAT32 on windows.
+		size_t             SpaceAvailable; // In bytes
+		size_t             SpaceUsed;      // in bytes
+		size_t             PartitionSize;  // in bytes
+		char *             MountPoint;
+		char *             FileSystemType; // NTFS or FAT32 on windows.
 		struct hdd_info_s *next;
 	} hdd_info_t;
 
 	typedef struct PUBLIC_API network_info_s
 	{
-		char *				   InterfaceName;
-		char				   IPv6Address[INET6_ADDRSTRLEN];
-		char				   IPv4Address[INET_ADDRSTRLEN];
-		char				   MACAddress[17];				// Includes colons
-		char				   SubnetMask[INET_ADDRSTRLEN]; // This is the IPv4 Subnet Mask and IPv6 CIDR mask
-		uint64_t			   TX;
-		uint64_t			   RX;
+		char *                 InterfaceName;
+		char                   IPv6Address[INET6_ADDRSTRLEN];
+		char                   IPv4Address[INET_ADDRSTRLEN];
+		char                   MACAddress[17];              // Includes colons
+		uint64_t               TX;
+		uint64_t               RX;
+		uint8_t                Online; // Whether the device is Up or Down
+		uint8_t                Loopback; // Whether the device is a loopback device
 		struct network_info_s *next;
 	} network_info_t;
 
@@ -38,25 +39,25 @@ extern "C"
 		// # of total processes, # of active processes, # of users, hostname, current time, IPv4 Address(es),
 		// IPv6 Address(es), Mac address(es), Interface names, TX/RX counts, subnet/cidr masks
 		// kernel command line options (if available), CPU Architecture
-		time_t		  CurrentTime;
-		time_t		  StartTime;	 // Seconds in EPOCH format since the system booted.
-		float		  Loads[3];		 // Null on windows. -- for now.
-		float		  SecondsIdle;   // Seconds spent idle (idfk why the kernel gives it as a float)
-		float		  SecondsUptime; // ???
+		time_t        CurrentTime;
+		time_t        StartTime;     // Seconds in EPOCH format since the system booted.
+		float         Loads[3];      // Null on windows. -- for now.
+		float         SecondsIdle;   // Seconds spent idle (idfk why the kernel gives it as a float)
+		float         SecondsUptime; // ???
 		unsigned long ProcessCount;
 		unsigned long RunningProcessCount;
 		unsigned long Zombies;
 		unsigned long UserCount;
-		char *		  Hostname;
+		char *        Hostname;
 
 		struct PUBLIC_API
 		{
-			char *		 Architecture;  // arm, i386, x86_64, etc.
-			char *		 Model;			// Model from the kernel (eg, Intel(R) Core(TM) i7-4930K CPU @ 3.40GHz)
-			unsigned int Cores;			// How many logical processors the kernel sees (including hyperthreaded ones)
+			char *       Architecture;  // arm, i386, x86_64, etc.
+			char *       Model;         // Model from the kernel (eg, Intel(R) Core(TM) i7-4930K CPU @ 3.40GHz)
+			unsigned int Cores;         // How many logical processors the kernel sees (including hyperthreaded ones)
 			unsigned int PhysicalCores; // How many physical cores exist on the die
-			float		 CurrentSpeed;  // Current speed of the CPU.
-			unsigned int CPUPercent;	// Calculated by us.
+			float        CurrentSpeed;  // Current speed of the CPU.
+			unsigned int CPUPercent;    // Calculated by us.
 		} cpu_info;
 
 		struct PUBLIC_API
@@ -69,7 +70,7 @@ extern "C"
 			uint64_t SwapTotal; // In bytes
 		} memory_info;
 
-		hdd_info_t *hdd_start;
+		hdd_info_t *    hdd_start;
 
 		network_info_t *net_start;
 
@@ -94,5 +95,5 @@ extern "C"
 	// Our C symbols.
 
 	extern PUBLIC_API information_t *GetSystemInformation();
-	extern PUBLIC_API void			 FreeSystemInformation(information_t *info);
+	extern PUBLIC_API void           FreeSystemInformation(information_t *info);
 }

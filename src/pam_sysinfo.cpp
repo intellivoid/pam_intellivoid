@@ -15,6 +15,7 @@
 
 // Include libembededFiglet
 #include <Figlet.hh>
+#include <fmt/format.h>
 #include <iomanip>
 #include <sstream>
 
@@ -142,10 +143,11 @@ public:
 	void AddLine(const std::string &key, const std::string &value)
 	{
 		// add the color, print the key and then the value with equals sign.
-		char *tmp = nullptr;
-		asprintf(&tmp, "\033[0;35m+  \033[0;37m%-15s \033[0;35m= \033[1;32m%s\033[0m\n", key.c_str(), value.c_str());
-		this->message += tmp;
-		free(tmp);
+		this->message += fmt::format("\033[0;35m+  \033[0;37m{:<15} \033[0;35m= \033[1;32m{}\033[0m\n", key.c_str(), value.c_str());
+		// char *tmp = nullptr;
+		// asprintf(&tmp, "\033[0;35m+  \033[0;37m%-15s \033[0;35m= \033[1;32m%s\033[0m\n", key.c_str(), value.c_str());
+		// this->message += tmp;
+		// free(tmp);
 	}
 
 	void AddSeparator(const std::string &str = "")
@@ -246,42 +248,48 @@ int actuallyauth(pam_handle_t *pamh, int flags,int argc, const char **argv)
 	// Figlet::larry3d.printFramed(info->Hostname, ss, Figlet::FIGLET_SINGLE);
 	Figlet::larry3d.printFramed("Intellivoid", ss, Figlet::FIGLET_SINGLE);
 
-	Message msg("\033[1;32m"s + ss.str() + "\033[0m\n"s);
+	Message msg(ss.str());
 	msg.AddSeparator("System Data");
 	msg.AddLine("Hostname", idiotcheck(info->Hostname));
-	msg.AddLine("Address", idiotcheck(info->Hostname)); // FIXME!
-	msg.AddLine("Kernel", std::string(info->kernel_info.Release) + " "s + std::string(info->kernel_info.Version));
+	// msg.AddLine("Address", idiotcheck(info->Hostname)); // FIXME!
+	msg.AddLine("Kernel", fmt::format("{} {}", info->kernel_info.Release, info->kernel_info.Version));
 	msg.AddLine("Uptime", mystrftime(info->StartTime, false));
 	msg.AddLine("CPU", idiotcheck(info->cpu_info.Model));
-
-	// Use stringstream for this because it's obnoxious otherwise.
-	ss.str(""); ss.clear();
-	ss << std::fixed << std::setprecision(2) << info->Loads[0] << " " << info->Loads[1] << " " << info->Loads[2];
-
-	msg.AddLine("Load Avg.", ss.str());
-
-	ss.str(""); ss.clear();
-	ss << Message::GenerateProgressBar(info->cpu_info.CPUPercent, 20)
-	   << " \033[1;32m" << info->cpu_info.CPUPercent << "%\033[0m";
-	msg.AddLine("CPU usage", ss.str());
+	msg.AddLine("Load Avg.", fmt::format("{:.2} {:.2} {:.2}", info->Loads[0], info->Loads[1], info->Loads[2]));
+	msg.AddLine("CPU usage", fmt::format("{} \033[1;32m{}%\033[0m", Message::GenerateProgressBar(info->cpu_info.CPUPercent, 30), info->cpu_info.CPUPercent));
 
 	// We need to calculate our free memory usage and our used usage.
 	// we calculate the amount used for the progress bar length and
 	// the amount free for the actual percentage.
 	double total = info->memory_info.TotalRam;
 	double used  = info->memory_info.UsedRam;
-	pam_syslog(pamh, LOG_INFO, "total = %f, used = %f", total, used);
-	double freemem = ((total - used) / total) * 100.0f;
+	// double freemem = ((total - used) / total) * 100.0f;
 	double usedmem = (((used - total) / total) * 100.0f) + 100.0f;
-	pam_syslog(pamh, LOG_INFO, "usedmem = %f, freemem = %f", usedmem, freemem);
+	// pam_syslog(pamh, LOG_INFO, "usedmem = %f, freemem = %f", usedmem, freemem);
 
-	// Clear our string stream.
-	ss.str(""); ss.clear();
 	// Generate a progress bar that is 30 chars long.
-	ss << Message::GenerateProgressBar(usedmem, 20) << " \033[1;32m" << usedmem << "% used";
+	msg.AddLine("Memory", fmt::format("{} \033[1;32m{:.2}% used", Message::GenerateProgressBar(usedmem, 30), usedmem));
 
-	// Now add our line!
-	msg.AddLine("Memory", ss.str());
+	// Add network information
+	msg.AddSeparator("Network");
+	for (network_info_t *iter = info->net_start; iter; iter = iter->next)
+	{
+		// printf("%s iter->Online == %d\n", iter->InterfaceName, iter->Online);
+		if (iter->Online != 1)
+			continue;
+		auto tx = GetHighestSize(iter->TX), rx = GetHighestSize(iter->RX);
+		
+		// Format addresses
+		std::string addresses {""};
+		if (iter->IPv4Address[0] && !iter->IPv6Address[0])
+			addresses = fmt::format("\033[93m{}\033[32m", iter->IPv4Address);
+		else if (!iter->IPv4Address[0] && iter->IPv6Address[0])
+			addresses = fmt::format("\033[93m{}\033[32m", iter->IPv6Address);
+		else if (iter->IPv4Address[0] && iter->IPv6Address[0])
+			addresses = fmt::format("\033[93m{}\033[32m, \033[93m{}\033[32m", iter->IPv4Address, iter->IPv6Address);
+
+		msg.AddLine(iter->InterfaceName, fmt::format("{:<22} \033[0;35m|\033[0m {}", fmt::format("TX: {} {}, RX: {} {}", tx.first, tx.second, rx.first, rx.second), addresses));
+	}
 
 	// Do our distro info.
 	msg.AddSeparator("Distribution");
@@ -301,8 +309,7 @@ int actuallyauth(pam_handle_t *pamh, int flags,int argc, const char **argv)
 	msg.AddLine("Username", user);
 
 	// Get max children.
-	long maxchild = sysconf(_SC_CHILD_MAX);
-	msg.AddLine("Processes", std::to_string(info->ProcessCount) + " of "s + std::to_string(maxchild) + " MAX"s);
+	msg.AddLine("Processes", fmt::format("{} of {} max", info->ProcessCount, sysconf(_SC_CHILD_MAX)));
 	msg.AddSeparator();
 
 	// Print everything at login!
@@ -316,12 +323,9 @@ int actuallyauth(pam_handle_t *pamh, int flags,int argc, const char **argv)
 /* expected hook */
 extern "C"
 {
-	PUBLIC_API int pam_sm_authenticate(pam_handle_t *pamh, int flags,int argc, const char **argv)
-	{
-		return actuallyauth(pamh, flags, argc, argv);
-	}
+	PUBLIC_API int pam_sm_authenticate(pam_handle_t *pamh, int flags,int argc, const char **argv)   { return actuallyauth(pamh, flags, argc, argv); }
 	PUBLIC_API int pam_sm_setcred(pam_handle_t *pamh, int flags, int argc, const char **argv)       { return PAM_SUCCESS; }
-	PUBLIC_API int pam_sm_acct_mgmt(pam_handle_t *pamh, int flags, int argc, const char **argv)     { return pam_sm_authenticate(pamh, flags, argc, argv); }
-	PUBLIC_API int pam_sm_open_session(pam_handle_t *pamh, int flags, int argc, const char **argv)  { return PAM_SUCCESS; }
+	PUBLIC_API int pam_sm_acct_mgmt(pam_handle_t *pamh, int flags, int argc, const char **argv)     { return actuallyauth(pamh, flags, argc, argv); }
+	PUBLIC_API int pam_sm_open_session(pam_handle_t *pamh, int flags, int argc, const char **argv)  { return actuallyauth(pamh, flags, argc, argv); }
 	PUBLIC_API int pam_sm_close_session(pam_handle_t *pamh, int flags, int argc, const char **argv) { return PAM_SUCCESS; }
 }
