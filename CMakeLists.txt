@@ -61,7 +61,8 @@ if (CMAKE_BUILD_TYPE STREQUAL "Debug")
 	# set(LDFLAGS "${LDFLAGS} -fsanitize=address -static-libasan -l:libclang_rt.asan-x86_64.a")
 elseif (CMAKE_BUILD_TYPE STREQUAL "Release" OR CMAKE_BUILD_TYPE STREQUAL "MinSizeRel")
 	# Hardening
-	add_compile_options(-fstack-clash-protection -fstack-protector-strong -mcet -fcf-protection)
+    add_compile_options(-fstack-clash-protection -fstack-protector-strong -s -fno-rtti -fno-ident -ffunction-sections -fdata-sections -fcf-protection)
+    add_link_options(-Wl,--gc-sections -Wl,-s -Wl,--build-id=none)
 	add_definitions(-D_FORTIFY_SOURCE=2 -D_GLIBCXX_ASSERTIONS)
 endif (CMAKE_BUILD_TYPE STREQUAL "Debug")
 
@@ -161,7 +162,7 @@ target_compile_features(${PROJECT_NAME}
 
 if (CMAKE_BUILD_TYPE STREQUAL "Debug")
 	target_link_libraries(${PROJECT_NAME} ${PAM_LIBRARIES} embedFiglet_linux_static_debug fmt)
-elseif (CMAKE_BUILD_TYPE STREQUAL "Release" OR CMAKE_BUILD_TYPE STREQUAL "MinSizeRel")	
+elseif (CMAKE_BUILD_TYPE STREQUAL "Release" OR CMAKE_BUILD_TYPE STREQUAL "MinSizeRel")
 	target_link_libraries(${PROJECT_NAME} ${PAM_LIBRARIES} embedFiglet_linux_static fmt)
 endif (CMAKE_BUILD_TYPE STREQUAL "Debug")
 
