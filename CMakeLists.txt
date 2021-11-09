@@ -126,7 +126,7 @@ include_directories(
 
 set_source_files_properties(${SOURCE_FILES} PROPERTIES LANGUAGE CXX)
 
-add_library(${PROJECT_NAME} MODULE src/pam_sysinfo.cpp src/libTitanium.cpp)
+add_library(${PROJECT_NAME} MODULE src/pam_sysinfo.cpp src/statfs_types.cpp src/libTitanium.cpp)
 set_target_properties(${PROJECT_NAME}
 	PROPERTIES
 		LINKER_LANGUAGE CXX

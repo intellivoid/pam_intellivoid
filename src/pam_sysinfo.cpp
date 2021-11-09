@@ -21,6 +21,7 @@
 
 // Include my future libTitanium library.
 #include "libTitanium.h"
+#include "statfs_types.h"
 
 using namespace std::string_literals;
 
@@ -144,10 +145,6 @@ public:
 	{
 		// add the color, print the key and then the value with equals sign.
 		this->message += fmt::format("\033[0;35m+  \033[0;37m{:<15} \033[0;35m= \033[1;32m{}\033[0m\n", key.c_str(), value.c_str());
-		// char *tmp = nullptr;
-		// asprintf(&tmp, "\033[0;35m+  \033[0;37m%-15s \033[0;35m= \033[1;32m%s\033[0m\n", key.c_str(), value.c_str());
-		// this->message += tmp;
-		// free(tmp);
 	}
 
 	void AddSeparator(const std::string &str = "")
@@ -182,12 +179,12 @@ public:
 
 
 	// Used for generating random progress bars.
-	static std::string GenerateProgressBar(double percentage, size_t length, const char *bordercolor = "\033[0;35m",
-											const char *progresscolor = "\033[1;34m", char progresschar = '#', char leftborder = '[',
-											char rightborder = ']')
+	static std::string GenerateProgressBar(double percentage, size_t length, char spacechar = ' ', char progresschar = '#',
+											const char *bordercolor = "\033[0;35m", const char *progresscolor = "\033[1;34m",
+											char leftborder = '[', char rightborder = ']')
 	{
 		// Initialize a string with spaces.
-		std::string str = std::string(length, ' ');
+		std::string str = std::string(length, spacechar);
 
 		// Add our actual bar, overwriting the spaces.
 		if (percentage != 0.0 && !isnan(percentage))
@@ -241,7 +238,7 @@ int actuallyauth(pam_handle_t *pamh, int flags,int argc, const char **argv)
 	ss << "\n              \033[1;93mUNAUTHORIZED ACCESS TO THIS DEVICE IS PROHIBITED\033[0;93m\n";
 	ss << "       You must have express permission to access or configure this device.\n";
 	ss << "            Unauthorized attempts and actions to access or use this\n";
-	ss << "             device may result in civil and/or criminal penalties\n";
+	ss << "             device may result in civil and/or criminal penalties.\n";
 	ss << "        \033[91mAll activities performed on this device are logged and monitored.\033[0m\n\n\033[0;32m";
 
 	// Figlet.
@@ -255,8 +252,8 @@ int actuallyauth(pam_handle_t *pamh, int flags,int argc, const char **argv)
 	msg.AddLine("Kernel", fmt::format("{} {}", info->kernel_info.Release, info->kernel_info.Version));
 	msg.AddLine("Uptime", mystrftime(info->StartTime, false));
 	msg.AddLine("CPU", idiotcheck(info->cpu_info.Model));
-	msg.AddLine("Load Avg.", fmt::format("{:.2} {:.2} {:.2}", info->Loads[0], info->Loads[1], info->Loads[2]));
-	msg.AddLine("CPU usage", fmt::format("{} \033[1;32m{}%\033[0m", Message::GenerateProgressBar(info->cpu_info.CPUPercent, 30), info->cpu_info.CPUPercent));
+	msg.AddLine("Load Avg.", fmt::format("{:.2f} {:.2f} {:.2f}", info->Loads[0], info->Loads[1], info->Loads[2]));
+	msg.AddLine("CPU usage", fmt::format("{} \033[1;32m{}%\033[0m", Message::GenerateProgressBar(info->cpu_info.CPUPercent, 30, '.'), info->cpu_info.CPUPercent));
 
 	// We need to calculate our free memory usage and our used usage.
 	// we calculate the amount used for the progress bar length and
@@ -268,7 +265,27 @@ int actuallyauth(pam_handle_t *pamh, int flags,int argc, const char **argv)
 	// pam_syslog(pamh, LOG_INFO, "usedmem = %f, freemem = %f", usedmem, freemem);
 
 	// Generate a progress bar that is 30 chars long.
-	msg.AddLine("Memory", fmt::format("{} \033[1;32m{:.2}% used", Message::GenerateProgressBar(usedmem, 30), usedmem));
+	msg.AddLine("Memory", fmt::format("{} \033[1;32m{:.2f}% used", Message::GenerateProgressBar(usedmem, 30, '.'), usedmem));
+
+	msg.AddSeparator("Mount");
+	for (hdd_info_t *iter = info->hdd_start; iter; iter = iter->next)
+	{
+		// We don't care about fake shit
+		if (!iter->SpaceUsed && !iter->SpaceTotal)
+			continue;
+
+		// Add 1 to avoid dividing by zero, only Kigyo can do that.
+		used = iter->SpaceUsed + 1, total = iter->SpaceTotal + 1;
+		double usedspace = (((used - total) / total) * 100.0f) + 100.0f;
+
+		std::string fstype{iter->FSType};
+
+		// XXX: Hack to clean up output
+		if (fstype == "overlay"s || fstype == "tmpfs"s || fstype == "devtmpfs"s)
+			continue;
+
+		msg.AddLine(iter->MountPoint, fmt::format("{} \033[1;32m{:.2f}%\033[0m {}", Message::GenerateProgressBar(usedspace, 30, '.'), usedspace, iter->FSType));
+	}
 
 	// Add network information
 	msg.AddSeparator("Network");

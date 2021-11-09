@@ -7,16 +7,24 @@ extern "C"
 {
 	typedef struct PUBLIC_API hdd_info_s
 	{
+		char *             Device;
+		char *             DeviceType;
+		char *             MountPoint;
+		char *             FSType;
+		char *             Type;
+		char *             Opts;
+		uint32_t           FSID;
+		uint64_t           SpaceTotal;
+		uint64_t           SpaceFree;
+		uint64_t           SpaceUsed;
+		uint64_t           Inodes;
+		uint64_t           InodesFree;
+		uint64_t           InodesUsed;
+		uint64_t           Blocks;
+		uint64_t           BlockSize;
 		// TODO
-		char *             Name; // Device/partition name.
 		size_t             BytesWritten;
 		size_t             BytesRead;
-
-		size_t             SpaceAvailable; // In bytes
-		size_t             SpaceUsed;      // in bytes
-		size_t             PartitionSize;  // in bytes
-		char *             MountPoint;
-		char *             FileSystemType; // NTFS or FAT32 on windows.
 		struct hdd_info_s *next;
 	} hdd_info_t;
 
@@ -25,10 +33,10 @@ extern "C"
 		char *                 InterfaceName;
 		char                   IPv6Address[INET6_ADDRSTRLEN];
 		char                   IPv4Address[INET_ADDRSTRLEN];
-		char                   MACAddress[17];              // Includes colons
+		char                   MACAddress[17]; // Includes colons
 		uint64_t               TX;
 		uint64_t               RX;
-		uint8_t                Online; // Whether the device is Up or Down
+		uint8_t                Online;   // Whether the device is Up or Down
 		uint8_t                Loopback; // Whether the device is a loopback device
 		struct network_info_s *next;
 	} network_info_t;

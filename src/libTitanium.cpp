@@ -6,9 +6,16 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <sstream>
+#include <iostream>
+#include <fstream>
+#include <array>
+#include <string>
+#include <vector>
 #include <netdb.h>
 #include <netinet/in.h>
 #include <string>
+#include <sys/stat.h>
 #include <sys/ioctl.h>
 #include <sys/resource.h>
 #include <sys/select.h> // also available via <sys/types.h>
@@ -25,6 +32,7 @@
 
 // For our defined types.
 #include "libTitanium.h"
+#include "statfs_types.h"
 
 static char buf[8192];
 
@@ -33,6 +41,62 @@ inline std::string isolate(const std::string &haystack, const std::string &str1,
 	size_t loc1 = haystack.find(str1) + 1;
 	size_t loc2 = haystack.substr(loc1).find(str2);
 	return haystack.substr(loc1, loc2);
+}
+
+inline std::vector<std::string> Tokenize(std::string && input, char delim = ' ')
+{
+	std::vector<std::string> tokens{};
+	std::stringstream token_stream{input};
+
+	std::string token;
+	while (std::getline(token_stream, token, delim))
+		tokens.push_back(token);
+
+	return tokens; // copy elision
+}
+
+std::string NoTermColor(const std::string &ret)
+{
+	std::string str;
+	bool in_term_color = false;
+
+	for(auto & elem : ret)
+	{
+		char c = elem;
+
+		if (in_term_color)
+		{
+			if(c == 'm')
+				in_term_color = false;
+
+			continue;
+		}
+
+		if (c == '\033')
+		{
+			in_term_color = true;
+			continue;
+		}
+
+		if (!in_term_color)
+			str += c;
+	}
+
+	return str;
+}
+
+std::pair<std::string, std::string> ParseKeyValue(std::string &&kvpair)
+{
+	size_t pos = kvpair.find("=");
+	return std::make_pair(kvpair.substr(0, pos), kvpair.substr(pos+1));
+}
+
+bool FileExists(std::string && path)
+{
+	struct stat st;
+	bzero(&st, sizeof(st));
+
+	return stat(path.c_str(), &st) == 0;
 }
 
 ///////////////////////////////////////////////////
@@ -113,52 +177,51 @@ static int GetLSBInfo(information_t *info)
 // Like GetLSBInfo this is also optional
 static int GetOSRelease(information_t *info)
 {
-	errno	  = 0;
-	FILE *data = fopen("/etc/os-release", "r");
-	if (!data && (errno == EEXIST || errno == EACCES))
+	char paths[][20] = {
+		"/etc/os-release",
+		"/etc/gentoo-release",
+		"/etc/fedora-release",
+		"/etc/redhat-release",
+		"/etc/debian_version"
+	};
+
+	std::string pathfile, line;
+
+	for (unsigned long i = 0; i < sizeof(paths) / 20; ++i)
 	{
-		// Try to handle the special snowflake distros
-		data = fopen("/etc/gentoo-release", "r");
-		if (!data)
-		{
-			data = fopen("/etc/fedora-release", "r");
-			if (!data)
-			{
-				data = fopen("/etc/redhat-release", "r");
-				if (!data)
-				{
-					data = fopen("/etc/debian_version", "r");
-					if (!data)
-						return -1; // Okay we're done. If you're this much of a special snowflake then you can go fuck yourself.
-				}
-			}
-		}
+		if (!FileExists(paths[i]))
+			continue;
+		pathfile = paths[i];
 	}
-	else if (!data)
-		return -1; // we failed and don't know why.
 
-	info->lsb_info.Dist_id	 = reinterpret_cast<char *>(malloc(1024));
-	info->lsb_info.Description = reinterpret_cast<char *>(malloc(1024));
-	info->lsb_info.Version = reinterpret_cast<char*>(malloc(1024));
-	bzero(info->lsb_info.Description, 1024);
-	bzero(info->lsb_info.Dist_id, 1024);
-	bzero(info->lsb_info.Version, 1024);
+	if (pathfile.empty())
+		return -1;
 
-	while (fgets(buf, sizeof(buf), data))
+	std::ifstream versfile(pathfile, std::ios::in);
+	if (!versfile.good())
+		return -1;
+
+	std::map<std::string, std::string> keyvals;
+
+	while (std::getline(versfile, line))
 	{
-		if (strstr("ID", buf))
-			sscanf(buf, "ID=%s", info->lsb_info.Dist_id);
+		auto [key, value] = ParseKeyValue(std::move(line));
 
-		if (strstr("PRETTY_NAME", buf))
-			sscanf(buf, "PRETTY_NAME=\"%s\"", info->lsb_info.Description);
+		if (value[0] == '"' && value[value.length()-1] == '"')
+			value = value.substr(1, value.length()-2);
 
-		if (strstr("VERSION", buf))
-			sscanf(buf, "VERSION=\"%s\"", info->lsb_info.Version);
+		keyvals.try_emplace(key, value);
 	}
-	fclose(data);
 
-	if (!strlen(info->lsb_info.Version))
-		strcpy(info->lsb_info.Version, "0.0");
+	if (auto iter = keyvals.find("ID"); iter != keyvals.end()) 
+		info->lsb_info.Dist_id = strdup(iter->second.c_str());
+	if (auto iter = keyvals.find("PRETTY_NAME"); iter != keyvals.end()) 
+		info->lsb_info.Description = strdup(iter->second.c_str());
+	if (auto iter = keyvals.find("BUILD_ID"); iter != keyvals.end()) 
+		info->lsb_info.Version = strdup(iter->second.c_str());
+
+	if (!info->lsb_info.Version || !strlen(info->lsb_info.Version))
+		info->lsb_info.Version = strdup("0.0");
 	return 0;
 }
 
@@ -247,160 +310,81 @@ static int GetCPUInfo(information_t *info)
 	return 0;
 }
 
-// Parse /proc/diskinfo
 static int GetDiskInfo(information_t *info)
 {
-	memset(&buf, 0, sizeof(buf));
+	// Ref: https://www.kernel.org/doc/Documentation/filesystems/proc.txt
+	// a line of self/mountinfo has the following structure:
+	// 36  35  98:0 /mnt1 /mnt2 rw,noatime master:1 - ext3 /dev/root rw,errors=continue
+	// (1) (2) (3)   (4)   (5)      (6)      (7)   (8) (9)   (10)         (11)
+	//
+	// (1) mount ID:  unique identifier of the mount (may be reused after umount)
+	// (2) parent ID:  ID of parent (or of self for the top of the mount tree)
+	// (3) major:minor:  value of st_dev for files on filesystem
+	// (4) root:  root of the mount within the filesystem
+	// (5) mount point:  mount point relative to the process's root
+	// (6) mount options:  per mount options
+	// (7) optional fields:  zero or more fields of the form "tag[:value]"
+	// (8) separator:  marks the end of the optional fields
+	// (9) filesystem type:  name of filesystem of the form "type[.subtype]"
+	// (10) mount source:  filesystem specific information or "none"
+	// (11) super options:  per super block options
 
-	FILE *f = fopen("/proc/diskstats", "r");
-	if (!f)
+	std::vector<std::string> lines;
 	{
-		perror("fopen");
-		return -1;
+		std::ifstream mountinfo("/proc/self/mountinfo", std::ios::in);
+
+		if (!mountinfo.good())
+			return -1;
+
+		for (std::string line; std::getline(mountinfo, line);)
+			lines.push_back(std::move(line));
 	}
 
-#if 0
-	Parsing the lines are fairly easy. The format of each line goes as follows:
-	fields:
-	 1 - major number
-	 2 - minor mumber
-	 3 - device name
-	 4 - reads completed successfully
-	 5 - reads merged
-	 6 - sectors read
-	 7 - time spent reading (ms)
-	 8 - writes completed
-	 9 - writes merged
-	10 - sectors written
-	11 - time spent writing (ms)
-	12 - I/Os currently in progress
-	13 - time spent doing I/Os (ms)
-	14 - weighted time spent doing I/Os (ms)
-	Field  1 -- # of reads completed
-		This is the total number of reads completed successfully.
-	Field  2 -- # of reads merged, field 6 -- # of writes merged
-		Reads and writes which are adjacent to each other may be merged for
-		efficiency.  Thus two 4K reads may become one 8K read before it is
-		ultimately handed to the disk, and so it will be counted (and queued)
-		as only one I/O.  This field lets you know how often this was done.
-	Field  3 -- # of sectors read
-		This is the total number of sectors read successfully.
-	Field  4 -- # of milliseconds spent reading
-		This is the total number of milliseconds spent by all reads (as
-		measured from __make_request() to end_that_request_last()).
-	Field  5 -- # of writes completed
-		This is the total number of writes completed successfully.
-	Field  6 -- # of writes merged
-		See the description of field 2.
-	Field  7 -- # of sectors written
-		This is the total number of sectors written successfully.
-	Field  8 -- # of milliseconds spent writing
-		This is the total number of milliseconds spent by all writes (as
-		measured from __make_request() to end_that_request_last()).
-	Field  9 -- # of I/Os currently in progress
-		The only field that should go to zero. Incremented as requests are
-		given to appropriate struct request_queue and decremented as they finish.
-	Field 10 -- # of milliseconds spent doing I/Os
-		This field increases so long as field 9 is nonzero.
-	Field 11 -- weighted # of milliseconds spent doing I/Os
-		This field is incremented at each I/O start, I/O completion, I/O
-		merge, or read of these stats by the number of I/Os in progress
-		(field 9) times the number of milliseconds spent doing I/O since the
-		last update of this field.  This can provide an easy measure of both
-		I/O completion time and the backlog that may be accumulating.
-#endif
+	// Set the start point.
+	hdd_info_t *head = new hdd_info_t, *iter = info->hdd_start = head, *last = nullptr;
+	bzero(head, sizeof(hdd_info_t));
 
-	hdd_info_t *iter = nullptr;
-	info->hdd_start = iter = new hdd_info_t;
-	bzero(iter, sizeof(hdd_info_t));
-
-	while (fgets(buf, sizeof(buf), f))
+	for (auto && line : lines)
 	{
-		// Variables
-		uint32_t major, minor;
-		size_t CompletedReads, MergedReads, SectorsRead, TimeSpentReading, CompletedWrites, MergedWrites, SectorsWritten, TimeSpentWriting,
-			IOInProgress, TimeSpentIOProcessing, WeightedTimeSpentIOProcessing;
-		char bufstr[sizeof(buf)];
-		memset(bufstr, 0, sizeof(buf));
+		std::vector<std::string> tokens{Tokenize(std::move(line))};
 
-		// Get the data (yes this is nasty.)
-		sscanf(buf,
-			   "%d %d %s %ld %ld %ld %ld %ld %ld %ld %ld %ld %ld %ld",
-			   &major,
-			   &minor,
-			   bufstr,
-			   &CompletedReads,
-			   &MergedReads,
-			   &SectorsRead,
-			   &TimeSpentReading,
-			   &CompletedWrites,
-			   &MergedWrites,
-			   &SectorsWritten,
-			   &TimeSpentWriting,
-			   &IOInProgress,
-			   &TimeSpentIOProcessing,
-			   &WeightedTimeSpentIOProcessing);
+		iter->MountPoint = strdup(tokens[4].c_str());
+		iter->Opts       = strdup(tokens[5].c_str());
+		iter->FSType     = strdup(tokens[8].c_str());
+		iter->Device     = strdup(tokens[9].c_str());
 
-		// Fill out the struct.
-		memset(iter, 0, sizeof(hdd_info_t));
-		iter->Name         = strdup(bufstr);
-		iter->BytesRead    = CompletedReads;
-		iter->BytesWritten = CompletedWrites;
-		iter->next         = new hdd_info_t;
+		// Make a call to statvfs()
+		struct statvfs vfs;
+		if (statvfs(iter->MountPoint, &vfs) != 0)
+			continue; // failed?
+
+		iter->FSID       = vfs.f_fsid;
+		iter->SpaceTotal = vfs.f_blocks * vfs.f_bsize;
+		iter->SpaceFree  = vfs.f_bavail * vfs.f_bsize;
+		iter->SpaceUsed  = (vfs.f_blocks - vfs.f_bfree) * vfs.f_bsize;
+		iter->Inodes     = vfs.f_files;
+		iter->InodesFree = vfs.f_ffree;
+		iter->InodesUsed = vfs.f_files - vfs.f_ffree;
+		iter->Blocks     = vfs.f_blocks;
+		iter->BlockSize  = vfs.f_bsize;
+
+		try
+		{
+			iter->Type = strdup(filesystems.at(vfs.f_fsid).FSType.c_str());
+		}
+		catch (const std::out_of_range &ex)
+		{
+		}
+
+		iter->next = new hdd_info_t;
 		bzero(iter->next, sizeof(hdd_info_t));
-
+		last = iter;
 		iter = iter->next;
 	}
 
-	// This is the end of the list.
-	delete iter->next;
-	iter->next = nullptr;
+	delete last->next;
+	last->next = nullptr;
 
-	fclose(f);
-	f = fopen("/proc/partitions", "r");
-	if (!f)
-	{
-		perror("fopen");
-		goto end;
-	}
-
-	// Parse /proc/partitions
-	while (fgets(buf, sizeof(buf), f))
-	{
-		// the format of this file was a bit confusing but the procfs man page says
-		// the format is as follows:
-		// major  minor  1024-byte blockcnt    part-name
-		//   8      0      3907018584             sda
-
-		uint32_t major, minor;
-		size_t   blocks;
-		char	 buffer[8192];
-		memset(&buffer, 0, sizeof(buffer));
-
-		// Skip 1st line.
-		static int cnt = 0;
-		if (!cnt)
-		{
-			cnt++;
-			continue;
-		}
-
-		// Parse the values
-		if (sscanf(buf, "%d %d %lu %s", &major, &minor, &blocks, buffer) == EOF)
-			continue;
-
-		// make the byte count and add the value to the array.
-		for (iter = info->hdd_start; iter; iter = iter->next)
-		{
-			if (!iter->Name)
-				continue;
-			if (!strcmp(iter->Name, buffer))
-				iter->PartitionSize = blocks * 1024;
-		}
-	}
-end:
-
-	fclose(f);
 	return 0;
 }
 
@@ -623,11 +607,6 @@ static int GetNetworkInfo(information_t *info)
 	return 0;
 }
 
-// bypass C++ typesafety because we're trying to be a C library.
-#define FreeAndClear(x)                \
-	free(reinterpret_cast<void *>(x)); \
-	x = nullptr
-
 // Our C symbols.
 extern "C"
 {
@@ -651,7 +630,6 @@ extern "C"
 			}
 		}
 
-		// TODO: Unfuck this function
 		if (GetDiskInfo(info) != 0)
 			goto fucked;
 
@@ -680,10 +658,15 @@ extern "C"
 		free(info->lsb_info.Release);
 		free(info->lsb_info.Description);
 		free(info->lsb_info.Version);
+
 		for (hdd_info_t *iter = info->hdd_start, *iterprev = nullptr; iter != nullptr; iterprev = iter, iter = iter->next)
 		{
-			if (iterprev)
-				free(iterprev->Name);
+			free(iter->Device);
+			free(iter->DeviceType);
+			free(iter->MountPoint);
+			free(iter->FSType);
+			free(iter->Type);
+			free(iter->Opts);
 			delete iterprev;
 		}
 		
